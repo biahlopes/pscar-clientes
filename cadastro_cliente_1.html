@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cadastro de Clientes - PsCar</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+:root{
+  --bg:#f5f7fb; --card:#fff; --text:#243044; --muted:#718096;
+  --border:#e6eaf0; --primary:#6c63ff; --primary2:#8179ff;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text)}
+.hidden{display:none !important}
+.app{max-width:900px;margin:auto;padding:24px}
+header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;gap:12px}
+h1{margin:0;font-size:26px}
+.subtitle{color:var(--muted);margin-top:5px;font-size:14px}
+.header-actions{display:flex;align-items:center;gap:10px}
+.user-pill{font-size:12px;color:var(--muted);background:#fff;border:1px solid var(--border);padding:7px 12px;border-radius:999px}
+.ghost{background:#f0f2f5;color:#475569;border:0;border-radius:10px;padding:10px 16px;font-weight:700;cursor:pointer}
+.panel{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:22px;margin-bottom:24px;box-shadow:0 4px 12px #26334d0a}
+.panel h2{margin:0 0 16px;font-size:17px}
+label{display:block;font-size:13px;font-weight:700;margin:13px 0 6px}
+input{width:100%;padding:11px 12px;border:1px solid #dfe4ec;border-radius:10px;font:inherit;outline:none}
+input:focus{border-color:var(--primary);box-shadow:0 0 0 3px #6c63ff15}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.carro-row{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end;margin-top:10px}
+.carro-row:first-of-type{margin-top:0}
+.remove-carro{background:#fff0f0;color:#b94444;padding:11px 12px;border-radius:10px;font-size:12px;font-weight:700}
+.add-carro{background:#f0f2f5;color:#475569;padding:9px 14px;font-size:13px;margin-top:12px}
+button{border:0;border-radius:10px;cursor:pointer}
+.primary{background:var(--primary);color:#fff;box-shadow:0 5px 14px #6c63ff25;width:100%;margin-top:18px;padding:12px 18px;font-weight:700}
+.primary:hover{background:var(--primary2)}
+.list-item{border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:10px;background:#fafbfd}
+.list-item .top{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px}
+.list-item .cliente{font-weight:800}
+.list-item .meta{font-size:12px;color:var(--muted)}
+.badge{display:inline-block;background:#eef2ff;color:#4b4bb0;padding:3px 9px;border-radius:999px;font-size:12px;margin:6px 4px 0 0}
+.empty{border:1px dashed #cfd6e1;border-radius:12px;padding:25px 10px;text-align:center;color:#8b96a7;font-size:13px}
+.delete-link{background:none;border:0;color:#b94444;font-size:12px;font-weight:700;padding:0;cursor:pointer;margin-top:8px}
+.error-text{color:#b94444;font-size:13px;margin-top:10px;min-height:16px}
+/* Login */
+#loginScreen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.login-card{background:#fff;width:min(380px,100%);border-radius:18px;padding:30px;box-shadow:0 20px 60px #11182720;text-align:center}
+.login-card h1{font-size:22px;margin:0 0 6px}
+.login-card p{color:var(--muted);font-size:14px;margin:0 0 20px}
+.login-card label{text-align:left}
+.login-card button{width:100%;margin-top:18px}
+@media(max-width:700px){
+  .row{grid-template-columns:1fr}
+  .carro-row{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<div id="loginScreen">
+  <div class="login-card">
+    <h1>Cadastro de Clientes</h1>
+    <p>Entre com o acesso da equipe.</p>
+    <form id="loginForm">
+      <label for="loginEmail">E-mail</label>
+      <input id="loginEmail" type="email" required placeholder="equipe@pscar.com" autocomplete="username">
+      <label for="loginPassword">Senha</label>
+      <input id="loginPassword" type="password" required placeholder="Senha da equipe" autocomplete="current-password">
+      <div class="error-text" id="loginError"></div>
+      <button type="submit" class="primary">Entrar</button>
+    </form>
+  </div>
+</div>
+
+<div class="app hidden" id="appScreen">
+  <header>
+    <div>
+      <h1>Cadastro de clientes</h1>
+      <div class="subtitle">Cadastre o cliente e os carros dele para liberar o acesso ao portal.</div>
+    </div>
+    <div class="header-actions">
+      <span class="user-pill" id="userPill"></span>
+      <button class="ghost" onclick="logout()">Sair</button>
+    </div>
+  </header>
+
+  <div class="panel">
+    <h2>Novo cliente</h2>
+    <form id="form">
+      <div class="row">
+        <div>
+          <label for="cpf">CPF do cliente</label>
+          <input id="cpf" required placeholder="000.000.000-00" inputmode="numeric">
+        </div>
+        <div>
+          <label for="nome">Nome do cliente</label>
+          <input id="nome" required placeholder="Ex.: João da Silva">
+        </div>
+      </div>
+
+      <div>
+        <label for="telefone">Telefone (opcional)</label>
+        <input id="telefone" placeholder="(00) 00000-0000">
+      </div>
+
+      <label>Carro(s) do cliente</label>
+      <div id="carrosList"></div>
+      <button type="button" class="add-carro" onclick="addCarroRow()">+ Adicionar outro carro</button>
+
+      <div class="error-text" id="formError"></div>
+      <button type="submit" class="primary">Salvar cliente</button>
+    </form>
+  </div>
+
+  <div class="panel">
+    <h2>Clientes cadastrados</h2>
+    <div id="lista"></div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL = "https://lwogclipyejxqaqeyzjc.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_i1pD6RijFsBdTPgSGKxM5w_L1OvJPZF";
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+let clientes = [];
+let realtimeChannel = null;
+
+const $ = id => document.getElementById(id);
+
+// ---------- Autenticação ----------
+async function initAuth(){
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  if(session){
+    await enterApp(session);
+  }else{
+    showLogin();
+  }
+  supabaseClient.auth.onAuthStateChange((event) => {
+    if(event === "SIGNED_OUT") showLogin();
+  });
+}
+
+function showLogin(){
+  $("loginScreen").classList.remove("hidden");
+  $("appScreen").classList.add("hidden");
+  if(realtimeChannel){
+    supabaseClient.removeChannel(realtimeChannel);
+    realtimeChannel = null;
+  }
+}
+
+async function enterApp(session){
+  $("loginScreen").classList.add("hidden");
+  $("appScreen").classList.remove("hidden");
+  $("userPill").textContent = session.user.email;
+  await loadClientes();
+  subscribeRealtime();
+}
+
+$("loginForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  $("loginError").textContent = "";
+  const email = $("loginEmail").value.trim();
+  const password = $("loginPassword").value;
+  const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+  if(error){
+    $("loginError").textContent = "Não foi possível entrar. Confira o e-mail e a senha.";
+    return;
+  }
+  await enterApp(data.session);
+});
+
+async function logout(){
+  await supabaseClient.auth.signOut();
+}
+
+// ---------- Dados ----------
+async function loadClientes(){
+  const { data, error } = await supabaseClient
+    .from("clientes")
+    .select("id, cpf, nome, telefone, carros(id, modelo, placa)")
+    .order("created_at", { ascending: false });
+
+  if(error){
+    console.error(error);
+    return;
+  }
+  clientes = data;
+  render();
+}
+
+function subscribeRealtime(){
+  if(realtimeChannel) return;
+  realtimeChannel = supabaseClient
+    .channel("clientes_changes")
+    .on("postgres_changes", { event: "*", schema: "public", table: "clientes" }, () => loadClientes())
+    .on("postgres_changes", { event: "*", schema: "public", table: "carros" }, () => loadClientes())
+    .subscribe();
+}
+
+function addCarroRow(modelo="", placa=""){
+  const row = document.createElement("div");
+  row.className = "carro-row";
+  row.innerHTML = `
+    <div>
+      <input class="carro-modelo" placeholder="Modelo do carro (ex.: Onix 2019)" value="${escapeHtml(modelo)}" required>
+    </div>
+    <div>
+      <input class="carro-placa" placeholder="Placa (ex.: ABC1D23)" value="${escapeHtml(placa)}" required>
+    </div>
+    <button type="button" class="remove-carro" onclick="this.parentElement.remove()">Remover</button>
+  `;
+  $("carrosList").appendChild(row);
+}
+
+function render(){
+  const zone = $("lista");
+  if(!clientes.length){
+    zone.innerHTML = '<div class="empty">Nenhum cliente cadastrado ainda</div>';
+    return;
+  }
+  zone.innerHTML = clientes.map(c => `
+    <div class="list-item">
+      <div class="top">
+        <span class="cliente">${escapeHtml(c.nome)}</span>
+        <span class="meta">CPF: ${escapeHtml(c.cpf)}${c.telefone ? " · " + escapeHtml(c.telefone) : ""}</span>
+      </div>
+      <div>
+        ${c.carros.map(carro => `<span class="badge">${escapeHtml(carro.modelo)} — ${escapeHtml(carro.placa)}</span>`).join("")}
+      </div>
+      <button class="delete-link" onclick="excluir('${c.id}')">Excluir cliente</button>
+    </div>
+  `).join("");
+}
+
+async function excluir(id){
+  if(confirm("Excluir este cliente? Isso também remove os carros e o histórico dele.")){
+    const { error } = await supabaseClient.from("clientes").delete().eq("id", id);
+    if(error){
+      console.error(error);
+      alert("Não foi possível excluir. Tente novamente.");
+      return;
+    }
+    await loadClientes();
+  }
+}
+
+$("form").addEventListener("submit", async e => {
+  e.preventDefault();
+  $("formError").textContent = "";
+
+  const carros = [...document.querySelectorAll(".carro-row")].map(row => ({
+    modelo: row.querySelector(".carro-modelo").value.trim(),
+    placa: row.querySelector(".carro-placa").value.trim().toUpperCase()
+  })).filter(c => c.modelo && c.placa);
+
+  if(!carros.length){
+    alert("Adicione pelo menos um carro com modelo e placa.");
+    return;
+  }
+
+  const { data: novoCliente, error: erroCliente } = await supabaseClient
+    .from("clientes")
+    .insert([{
+      cpf: $("cpf").value.trim(),
+      nome: $("nome").value.trim(),
+      telefone: $("telefone").value.trim()
+    }])
+    .select()
+    .single();
+
+  if(erroCliente){
+    console.error(erroCliente);
+    $("formError").textContent = erroCliente.message.includes("duplicate")
+      ? "Já existe um cliente cadastrado com esse CPF."
+      : "Não foi possível salvar o cliente.";
+    return;
+  }
+
+  const carrosParaInserir = carros.map(c => ({ ...c, cliente_id: novoCliente.id }));
+  const { error: erroCarros } = await supabaseClient.from("carros").insert(carrosParaInserir);
+
+  if(erroCarros){
+    console.error(erroCarros);
+    $("formError").textContent = erroCarros.message.includes("duplicate")
+      ? "Uma das placas já está cadastrada em outro carro."
+      : "Cliente salvo, mas houve erro ao salvar os carros.";
+    return;
+  }
+
+  await loadClientes();
+  e.target.reset();
+  $("carrosList").innerHTML = "";
+  addCarroRow();
+});
+
+function escapeHtml(str){
+  return String(str).replace(/[&<>"']/g, c => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+  }[c]));
+}
+
+addCarroRow();
+initAuth();
+</script>
+</body>
+</html>

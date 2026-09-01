@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Portal do Cliente - PsCar</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+:root{
+  --bg:#f5f7fb; --card:#fff; --text:#243044; --muted:#718096;
+  --border:#e6eaf0; --primary:#6c63ff; --primary2:#8179ff;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text)}
+.hidden{display:none !important}
+
+/* Login */
+#loginScreen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.login-card{background:#fff;width:min(400px,100%);border-radius:18px;padding:32px;box-shadow:0 20px 60px #11182720;text-align:center}
+.login-card h1{font-size:22px;margin:0 0 6px}
+.login-card p{color:var(--muted);font-size:14px;margin:0 0 22px}
+.login-card label{text-align:left;display:block;font-size:13px;font-weight:700;margin:13px 0 6px}
+.login-card input{width:100%;padding:12px 13px;border:1px solid #dfe4ec;border-radius:10px;font:inherit;outline:none}
+.login-card input:focus{border-color:var(--primary);box-shadow:0 0 0 3px #6c63ff15}
+.login-card button{width:100%;margin-top:20px;padding:12px 18px;border:0;border-radius:10px;font-weight:700;cursor:pointer;background:var(--primary);color:#fff;box-shadow:0 5px 14px #6c63ff25}
+.login-card button:hover{background:var(--primary2)}
+.error-text{color:#b94444;font-size:13px;margin-top:10px;min-height:16px}
+.hint{font-size:12px;color:var(--muted);margin-top:16px}
+
+/* Portal */
+.app{max-width:800px;margin:auto;padding:24px}
+header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;gap:12px}
+h1{margin:0;font-size:24px}
+.subtitle{color:var(--muted);margin-top:5px;font-size:14px}
+.ghost{background:#f0f2f5;color:#475569;border:0;border-radius:10px;padding:10px 16px;font-weight:700;cursor:pointer}
+.carro-select{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}
+.carro-atual-titulo{font-size:16px;font-weight:800;margin:0 0 14px;color:var(--text)}
+.carro-chip{background:#fff;border:1px solid var(--border);border-radius:999px;padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer;color:#4b5565}
+.carro-chip.active{background:var(--primary);color:#fff;border-color:var(--primary)}
+.timeline-item{background:#fff;border:1px solid var(--border);border-radius:14px;padding:16px 18px;margin-bottom:12px;box-shadow:0 4px 12px #26334d0a}
+.timeline-item .data{font-weight:800;font-size:15px}
+.timeline-item .km{color:var(--muted);font-size:13px;margin-top:2px}
+.timeline-item .servicos{margin-top:10px;font-size:13px}
+.badge{display:inline-block;background:#eef2ff;color:#4b4bb0;padding:4px 10px;border-radius:999px;font-size:12px;margin:3px 4px 0 0}
+.empty{border:1px dashed #cfd6e1;border-radius:12px;padding:30px 10px;text-align:center;color:#8b96a7;font-size:13px}
+</style>
+</head>
+<body>
+
+<div id="loginScreen">
+  <div class="login-card">
+    <h1>Portal do Cliente</h1>
+    <p>Acompanhe o histórico de manutenção do seu carro.</p>
+    <form id="loginForm">
+      <label for="cpf">CPF</label>
+      <input id="cpf" required placeholder="000.000.000-00" inputmode="numeric">
+      <label for="placa">Placa do carro</label>
+      <input id="placa" required placeholder="Ex.: ABC1D23">
+      <div class="error-text" id="loginError"></div>
+      <button type="submit">Entrar</button>
+    </form>
+    <div class="hint">Não sabe a placa? Fale com a oficina.</div>
+  </div>
+</div>
+
+<div class="app hidden" id="appScreen">
+  <header>
+    <div>
+      <h1 id="clienteNome"></h1>
+      <div class="subtitle">Histórico de manutenção</div>
+    </div>
+    <button class="ghost" onclick="sair()">Sair</button>
+  </header>
+
+  <div class="carro-select" id="carroSelect"></div>
+
+  <h2 id="carroAtualTitulo" class="carro-atual-titulo"></h2>
+  <div id="timeline"></div>
+</div>
+
+<script>
+const SUPABASE_URL = "https://lwogclipyejxqaqeyzjc.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_i1pD6RijFsBdTPgSGKxM5w_L1OvJPZF";
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const $ = id => document.getElementById(id);
+let clienteAtual = null;
+let placaSelecionada = null;
+
+function onlyDigits(str){ return String(str).replace(/\D/g, ""); }
+
+$("loginForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  $("loginError").textContent = "";
+
+  const cpfDigitado = onlyDigits($("cpf").value);
+  const placaDigitada = $("placa").value.trim().toUpperCase();
+
+  const { data, error } = await supabaseClient.rpc("login_cliente", {
+    p_cpf: cpfDigitado,
+    p_placa: placaDigitada
+  });
+
+  if(error || !data){
+    $("loginError").textContent = "CPF ou placa não encontrados. Confira os dados ou fale com a oficina.";
+    return;
+  }
+
+  clienteAtual = data;
+  placaSelecionada = placaDigitada;
+  entrarNoPortal();
+});
+
+function entrarNoPortal(){
+  $("loginScreen").classList.add("hidden");
+  $("appScreen").classList.remove("hidden");
+  $("clienteNome").textContent = "Olá, " + clienteAtual.nome.split(" ")[0];
+  renderCarroSelect();
+  renderTimeline();
+}
+
+function renderCarroSelect(){
+  const zone = $("carroSelect");
+  if(clienteAtual.carros.length <= 1){
+    zone.innerHTML = "";
+  }else{
+    zone.innerHTML = clienteAtual.carros.map(carro => `
+      <button class="carro-chip ${carro.placa === placaSelecionada ? 'active' : ''}" onclick="selecionarCarro('${carro.placa}')">
+        ${escapeHtml(carro.modelo)} — ${escapeHtml(carro.placa)}
+      </button>
+    `).join("");
+  }
+  renderCarroAtualTitulo();
+}
+
+function renderCarroAtualTitulo(){
+  const carro = clienteAtual.carros.find(c => c.placa === placaSelecionada);
+  $("carroAtualTitulo").textContent = carro ? `🚗 ${carro.modelo} — ${carro.placa}` : "";
+}
+
+function selecionarCarro(placa){
+  placaSelecionada = placa;
+  renderCarroSelect();
+  renderTimeline();
+}
+
+function formatDate(value){
+  if(!value) return "";
+  const [y,m,d] = value.split("-");
+  return `${d}/${m}/${y}`;
+}
+
+async function renderTimeline(){
+  const zone = $("timeline");
+  zone.innerHTML = '<div class="empty">Carregando...</div>';
+
+  const cpfDigitado = onlyDigits($("cpf").value);
+  const { data, error } = await supabaseClient.rpc("historico_do_carro", {
+    p_cpf: cpfDigitado,
+    p_placa: placaSelecionada
+  });
+
+  if(error || !data || !data.length){
+    zone.innerHTML = '<div class="empty">Ainda não há nenhum serviço registrado para este carro.</div>';
+    return;
+  }
+
+  zone.innerHTML = data.map(r => `
+    <div class="timeline-item">
+      <div class="data">📅 ${formatDate(r.data)}</div>
+      <div class="km">${r.km} km</div>
+      <div class="servicos">
+        ${r.servicos.map(s => `<span class="badge">${escapeHtml(s)}</span>`).join("")}
+      </div>
+    </div>
+  `).join("");
+}
+
+function sair(){
+  clienteAtual = null;
+  placaSelecionada = null;
+  $("loginForm").reset();
+  $("loginError").textContent = "";
+  $("appScreen").classList.add("hidden");
+  $("loginScreen").classList.remove("hidden");
+}
+
+function escapeHtml(str){
+  return String(str).replace(/[&<>"']/g, c => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+  }[c]));
+}
+</script>
+</body>
+</html>
