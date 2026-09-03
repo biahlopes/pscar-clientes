@@ -113,6 +113,9 @@ button{border:0;border-radius:10px;padding:12px 18px;font-weight:700;cursor:poin
       <label for="outros">Outro serviço (se não estiver na lista acima)</label>
       <textarea id="outros" rows="2" placeholder="Descreva aqui, se necessário"></textarea>
 
+      <label for="observacao">Observação (o cliente vê isso no histórico dele)</label>
+      <textarea id="observacao" rows="2" placeholder="Ex.: Recomendado trocar amortecedor na próxima visita"></textarea>
+
       <div class="error-text" id="formError"></div>
 
       <button type="submit" class="primary" id="submitBtn">Salvar lançamento</button>
@@ -177,8 +180,59 @@ const SERVICOS_PADRAO = [
   "Interruptor de óleo",
   "Bomba de óleo",
   "Pastilha",
-  "Disco"
+  "Disco",
+  "Limpeza de bico",
+  "Limpeza de TBI"
 ];
+
+// Regras de previsão da próxima manutenção (km e/ou meses). Itens fora daqui não têm previsão automática.
+const REGRAS_PREVISAO = {
+  "Troca de óleo": { km: 10000, meses: 6 },
+  "Troca de filtro de óleo": { km: 10000, meses: 6 },
+  "Filtro de combustível": { km: 10000, meses: 12 },
+  "Filtro de ar": { km: 10000, meses: 12 },
+  "Filtro de cabine": { km: 10000, meses: 12 },
+  "Higienização do ar condicionado": { km: 10000, meses: 12 },
+  "Troca de bomba de água": { km: 50000, meses: null },
+  "Troca de kit correia dentada": { km: 50000, meses: null },
+  "Troca de vela": { km: 20000, meses: 6 },
+  "Troca de cabo": { km: 20000, meses: 6 },
+  "Troca de fluido de freio": { km: 20000, meses: 6 },
+  "Limpeza de bico": { km: null, meses: 6 },
+  "Limpeza de TBI": { km: null, meses: 6 }
+};
+
+function calcularPrevisao(dataServico, kmServico, meses){
+  let proximaData = null;
+  if(meses){
+    const d = new Date(dataServico + "T00:00:00");
+    d.setMonth(d.getMonth() + meses);
+    proximaData = d.toISOString().slice(0, 10);
+  }
+  return proximaData;
+}
+
+async function atualizarPrevisoes(carroId, servicosMarcados, dataServico, kmServico){
+  const linhas = [];
+  servicosMarcados.forEach(servico => {
+    const regra = REGRAS_PREVISAO[servico];
+    if(!regra) return;
+    linhas.push({
+      carro_id: carroId,
+      servico: servico,
+      proxima_data: calcularPrevisao(dataServico, kmServico, regra.meses),
+      proxima_km: regra.km ? Number(kmServico) + regra.km : null,
+      atualizado_em: new Date().toISOString()
+    });
+  });
+  if(!linhas.length) return;
+
+  const { error } = await supabaseClient
+    .from("previsoes")
+    .upsert(linhas, { onConflict: "carro_id,servico" });
+
+  if(error) console.error("Erro ao salvar previsões:", error);
+}
 
 const $ = id => document.getElementById(id);
 
@@ -271,7 +325,7 @@ $("placa").addEventListener("blur", buscarCarroPorPlaca);
 async function loadRegistros(){
   const { data, error } = await supabaseClient
     .from("historico")
-    .select("id, data, km, servicos, carros(modelo, placa, clientes(nome, cpf))")
+    .select("id, data, km, servicos, observacao, carros(modelo, placa, clientes(nome, cpf))")
     .order("data", { ascending: false });
 
   if(error){
@@ -312,6 +366,7 @@ function render(){
       <div class="servicos">
         ${r.servicos.map(s => `<span class="badge">${escapeHtml(s)}</span>`).join("")}
       </div>
+      ${r.observacao ? `<div class="hint" style="margin-top:8px">📝 ${escapeHtml(r.observacao)}</div>` : ""}
       <div style="margin-top:8px;display:flex;gap:14px">
         <button class="delete-link" style="color:#4b5565" onclick="editar('${r.id}')">Editar</button>
         <button class="delete-link" onclick="excluir('${r.id}')">Excluir</button>
@@ -335,6 +390,7 @@ async function editar(id){
   });
   const extras = r.servicos.filter(s => !SERVICOS_PADRAO.includes(s));
   $("outros").value = extras.join(", ");
+  $("observacao").value = r.observacao || "";
 
   $("submitBtn").textContent = "Salvar alteração";
   $("cancelEditBtn").style.display = "block";
@@ -387,7 +443,8 @@ $("form").addEventListener("submit", async e => {
     carro_id: $("carroId").value,
     data: $("data").value,
     km: $("km").value,
-    servicos: servicosMarcados
+    servicos: servicosMarcados,
+    observacao: $("observacao").value.trim() || null
   };
 
   const idEmEdicao = $("registroId").value;
@@ -403,6 +460,8 @@ $("form").addEventListener("submit", async e => {
     $("formError").textContent = "Não foi possível salvar. Tente novamente.";
     return;
   }
+
+  await atualizarPrevisoes($("carroId").value, servicosMarcados, dados.data, dados.km);
 
   await loadRegistros();
   cancelarEdicao();
