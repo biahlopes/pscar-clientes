@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Manutenções Próximas - PsCar</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+:root{
+  --bg:#f5f7fb; --card:#fff; --text:#243044; --muted:#718096;
+  --border:#e6eaf0; --primary:#6c63ff; --primary2:#8179ff;
+  --urgente:#ef6a6a; --atencao:#e8a43a; --ok:#4caf7d;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text)}
+.hidden{display:none !important}
+.app{max-width:900px;margin:auto;padding:24px}
+header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;gap:12px}
+h1{margin:0;font-size:26px}
+.subtitle{color:var(--muted);margin-top:5px;font-size:14px}
+.header-actions{display:flex;align-items:center;gap:10px}
+.user-pill{font-size:12px;color:var(--muted);background:#fff;border:1px solid var(--border);padding:7px 12px;border-radius:999px}
+.ghost{background:#f0f2f5;color:#475569;border:0;border-radius:10px;padding:10px 16px;font-weight:700;cursor:pointer}
+.item{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px 18px;margin-bottom:12px;box-shadow:0 4px 12px #26334d0a;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.item .info{flex:1;min-width:220px}
+.item .cliente{font-weight:800;font-size:15px}
+.item .detalhe{font-size:13px;color:var(--muted);margin-top:3px}
+.tag{display:inline-block;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:700;margin-top:6px}
+.tag.urgente{background:#fff0f0;color:#b94444}
+.tag.atencao{background:#fff7e8;color:#9a671e}
+.whatsapp-btn{background:#25D366;color:#fff;padding:10px 16px;border-radius:10px;font-weight:700;font-size:13px;text-decoration:none;white-space:nowrap}
+.empty{border:1px dashed #cfd6e1;border-radius:12px;padding:30px 10px;text-align:center;color:#8b96a7;font-size:13px}
+.error-text{color:#b94444;font-size:13px;margin-top:10px;min-height:16px}
+/* Login */
+#loginScreen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.login-card{background:#fff;width:min(380px,100%);border-radius:18px;padding:30px;box-shadow:0 20px 60px #11182720;text-align:center}
+.login-card h1{font-size:22px;margin:0 0 6px}
+.login-card p{color:var(--muted);font-size:14px;margin:0 0 20px}
+.login-card label{display:block;text-align:left;font-size:13px;font-weight:700;margin:13px 0 6px}
+.login-card input{width:100%;padding:12px 13px;border:1px solid #dfe4ec;border-radius:10px;font:inherit;outline:none}
+.login-card button{width:100%;margin-top:18px;padding:12px 18px;border:0;border-radius:10px;font-weight:700;cursor:pointer;background:var(--primary);color:#fff}
+</style>
+</head>
+<body>
+
+<div id="loginScreen">
+  <div class="login-card">
+    <h1>Manutenções Próximas</h1>
+    <p>Entre com o acesso da equipe.</p>
+    <form id="loginForm">
+      <label for="loginEmail">E-mail</label>
+      <input id="loginEmail" type="email" required placeholder="equipe@pscar.com" autocomplete="username">
+      <label for="loginPassword">Senha</label>
+      <input id="loginPassword" type="password" required placeholder="Senha da equipe" autocomplete="current-password">
+      <div class="error-text" id="loginError"></div>
+      <button type="submit">Entrar</button>
+    </form>
+  </div>
+</div>
+
+<div class="app hidden" id="appScreen">
+  <header>
+    <div>
+      <h1>Manutenções próximas</h1>
+      <div class="subtitle">Clientes com alguma manutenção vencendo em breve, dos mais urgentes aos mais distantes.</div>
+    </div>
+    <div class="header-actions">
+      <span class="user-pill" id="userPill"></span>
+      <button class="ghost" onclick="logout()">Sair</button>
+    </div>
+  </header>
+
+  <div id="lista"></div>
+</div>
+
+<script>
+const SUPABASE_URL = "https://lwogclipyejxqaqeyzjc.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_i1pD6RijFsBdTPgSGKxM5w_L1OvJPZF";
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const $ = id => document.getElementById(id);
+
+async function initAuth(){
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  if(session){
+    await enterApp(session);
+  }else{
+    showLogin();
+  }
+  supabaseClient.auth.onAuthStateChange((event) => {
+    if(event === "SIGNED_OUT") showLogin();
+  });
+}
+
+function showLogin(){
+  $("loginScreen").classList.remove("hidden");
+  $("appScreen").classList.add("hidden");
+}
+
+async function enterApp(session){
+  $("loginScreen").classList.add("hidden");
+  $("appScreen").classList.remove("hidden");
+  $("userPill").textContent = session.user.email;
+  await carregar();
+}
+
+$("loginForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  $("loginError").textContent = "";
+  const email = $("loginEmail").value.trim();
+  const password = $("loginPassword").value;
+  const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+  if(error){
+    $("loginError").textContent = "Não foi possível entrar. Confira o e-mail e a senha.";
+    return;
+  }
+  await enterApp(data.session);
+});
+
+async function logout(){
+  await supabaseClient.auth.signOut();
+}
+
+function formatDate(value){
+  if(!value) return "";
+  const [y,m,d] = value.split("-");
+  return `${d}/${m}/${y}`;
+}
+
+function diasAte(dataStr){
+  const hoje = new Date();
+  hoje.setHours(0,0,0,0);
+  const alvo = new Date(dataStr + "T00:00:00");
+  return Math.round((alvo - hoje) / (1000*60*60*24));
+}
+
+function montarLinkWhatsapp(telefone, nome, servico, quando){
+  const numero = (telefone || "").replace(/\D/g, "");
+  const numeroCompleto = numero.startsWith("55") ? numero : "55" + numero;
+  const mensagem = `Olá ${nome}! Aqui é da PsCar. Passando pra lembrar que a ${servico.toLowerCase()} do seu carro está prevista para ${quando}. Quer agendar um horário?`;
+  return `https://wa.me/${numeroCompleto}?text=${encodeURIComponent(mensagem)}`;
+}
+
+async function carregar(){
+  const zone = $("lista");
+  zone.innerHTML = '<div class="empty">Carregando...</div>';
+
+  const { data, error } = await supabaseClient
+    .from("previsoes")
+    .select("servico, proxima_data, proxima_km, carros(modelo, placa, clientes(nome, telefone))")
+    .order("proxima_data", { ascending: true, nullsFirst: false });
+
+  if(error){
+    console.error(error);
+    zone.innerHTML = '<div class="empty">Não foi possível carregar as previsões.</div>';
+    return;
+  }
+
+  if(!data.length){
+    zone.innerHTML = '<div class="empty">Nenhuma previsão de manutenção registrada ainda.</div>';
+    return;
+  }
+
+  // Só mostra o que está vencido ou vence nos próximos 60 dias (ou não tem data, mas tem km)
+  const relevantes = data.filter(p => {
+    if(!p.proxima_data) return true;
+    return diasAte(p.proxima_data) <= 60;
+  });
+
+  if(!relevantes.length){
+    zone.innerHTML = '<div class="empty">Nada vencendo nos próximos 60 dias. 🎉</div>';
+    return;
+  }
+
+  zone.innerHTML = relevantes.map(p => {
+    const cliente = p.carros.clientes;
+    const dias = p.proxima_data ? diasAte(p.proxima_data) : null;
+    let tag = "";
+    if(dias !== null){
+      if(dias < 0) tag = `<span class="tag urgente">Venceu há ${Math.abs(dias)} dia(s)</span>`;
+      else if(dias <= 15) tag = `<span class="tag urgente">Vence em ${dias} dia(s)</span>`;
+      else tag = `<span class="tag atencao">Vence em ${dias} dia(s)</span>`;
+    }
+    const quandoTexto = [
+      p.proxima_data ? `até ${formatDate(p.proxima_data)}` : null,
+      p.proxima_km ? `ou ${p.proxima_km} km` : null
+    ].filter(Boolean).join(" ");
+
+    return `
+      <div class="item">
+        <div class="info">
+          <div class="cliente">${escapeHtml(cliente.nome)} — ${escapeHtml(p.carros.modelo)} (${escapeHtml(p.carros.placa)})</div>
+          <div class="detalhe">${escapeHtml(p.servico)} — previsto ${quandoTexto}</div>
+          ${tag}
+        </div>
+        ${cliente.telefone ? `<a class="whatsapp-btn" target="_blank" href="${montarLinkWhatsapp(cliente.telefone, cliente.nome, p.servico, quandoTexto)}">Enviar WhatsApp</a>` : ""}
+      </div>
+    `;
+  }).join("");
+}
+
+function escapeHtml(str){
+  return String(str).replace(/[&<>"']/g, c => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+  }[c]));
+}
+
+initAuth();
+</script>
+</body>
+</html>
