@@ -35,6 +35,12 @@ h1{margin:0;font-size:24px}
 .ghost{background:#f0f2f5;color:#475569;border:0;border-radius:10px;padding:10px 16px;font-weight:700;cursor:pointer}
 .carro-select{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}
 .carro-atual-titulo{font-size:16px;font-weight:800;margin:0 0 14px;color:var(--text)}
+.tabs{display:flex;gap:8px;margin-bottom:16px;border-bottom:1px solid var(--border)}
+.tab-btn{background:none;border:0;padding:10px 4px;margin-right:16px;font-weight:700;font-size:14px;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent}
+.tab-btn.active{color:var(--primary);border-bottom-color:var(--primary)}
+.previsao-item{background:#fff;border:1px solid var(--border);border-radius:14px;padding:16px 18px;margin-bottom:12px;box-shadow:0 4px 12px #26334d0a}
+.previsao-item .servico{font-weight:800;font-size:14px}
+.previsao-item .quando{color:var(--muted);font-size:13px;margin-top:4px}
 .carro-chip{background:#fff;border:1px solid var(--border);border-radius:999px;padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer;color:#4b5565}
 .carro-chip.active{background:var(--primary);color:#fff;border-color:var(--primary)}
 .timeline-item{background:#fff;border:1px solid var(--border);border-radius:14px;padding:16px 18px;margin-bottom:12px;box-shadow:0 4px 12px #26334d0a}
@@ -75,7 +81,14 @@ h1{margin:0;font-size:24px}
   <div class="carro-select" id="carroSelect"></div>
 
   <h2 id="carroAtualTitulo" class="carro-atual-titulo"></h2>
+
+  <div class="tabs">
+    <button class="tab-btn active" id="tabHistoricoBtn" onclick="mudarAba('historico')">Histórico</button>
+    <button class="tab-btn" id="tabPrevisoesBtn" onclick="mudarAba('previsoes')">Próximas manutenções</button>
+  </div>
+
   <div id="timeline"></div>
+  <div id="previsoesZone" class="hidden"></div>
 </div>
 
 <script>
@@ -141,13 +154,54 @@ function renderCarroAtualTitulo(){
 function selecionarCarro(placa){
   placaSelecionada = placa;
   renderCarroSelect();
+  mudarAba("historico");
   renderTimeline();
+}
+
+let abaAtual = "historico";
+
+function mudarAba(aba){
+  abaAtual = aba;
+  $("tabHistoricoBtn").classList.toggle("active", aba === "historico");
+  $("tabPrevisoesBtn").classList.toggle("active", aba === "previsoes");
+  $("timeline").classList.toggle("hidden", aba !== "historico");
+  $("previsoesZone").classList.toggle("hidden", aba !== "previsoes");
+  if(aba === "previsoes") renderPrevisoes();
 }
 
 function formatDate(value){
   if(!value) return "";
   const [y,m,d] = value.split("-");
   return `${d}/${m}/${y}`;
+}
+
+async function renderPrevisoes(){
+  const zone = $("previsoesZone");
+  zone.innerHTML = '<div class="empty">Carregando...</div>';
+
+  const cpfDigitado = onlyDigits($("cpf").value);
+  const { data, error } = await supabaseClient.rpc("previsoes_do_carro", {
+    p_cpf: cpfDigitado,
+    p_placa: placaSelecionada
+  });
+
+  if(error || !data || !data.length){
+    zone.innerHTML = '<div class="empty">Nenhuma manutenção prevista para este carro no momento.</div>';
+    return;
+  }
+
+  zone.innerHTML = data.map(p => {
+    const quando = [
+      p.proxima_data ? `até ${formatDate(p.proxima_data)}` : null,
+      p.proxima_km ? `ou ${p.proxima_km} km` : null
+    ].filter(Boolean).join(" ");
+    return `
+      <div class="previsao-item">
+        <div class="servico">🔧 ${escapeHtml(p.servico)}</div>
+        <div class="quando">Previsto para ${quando}</div>
+      </div>
+    `;
+  }).join("");
 }
 
 async function renderTimeline(){
@@ -172,6 +226,7 @@ async function renderTimeline(){
       <div class="servicos">
         ${r.servicos.map(s => `<span class="badge">${escapeHtml(s)}</span>`).join("")}
       </div>
+      ${r.observacao ? `<div class="km" style="margin-top:8px">📝 ${escapeHtml(r.observacao)}</div>` : ""}
     </div>
   `).join("");
 }
